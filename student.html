@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VNIT Smart Shuttle — Student Portal</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .rides-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 12px; margin-top: 12px; }
+    .ride-card { background: #fff; border-radius: 10px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .ride-card.selected { outline: 2px solid var(--primary); }
+    .small-muted { font-size: 0.85rem; color: var(--muted); }
+    .map-box { height: 220px; border-radius: 10px; background: linear-gradient(180deg,#e8f4ff,#f7fbff); display:flex;align-items:center;justify-content:center;position:relative; overflow:hidden; }
+    .map-route { position:absolute; left:10%; right:10%; top:30%; height:4px; background: rgba(30,136,229,0.25); border-radius:4px; }
+    .ev-icon { position:absolute; width:28px; height:28px; border-radius:50%; background:#1e88e5; display:flex;align-items:center;justify-content:center;color:#fff; font-weight:700; transform:translateX(-50%); top:26%; left:10%; transition: left 1s linear; }
+    .map-labels { position:absolute; bottom:10px; left:12px; font-size:0.85rem; color:#035388; }
+    .controls { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+    .disabled { opacity:0.6; pointer-events:none; }
+    .history { margin-top:12px; background:#fff;padding:10px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06); }
+    /* Popup mock Razorpay */
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5);
+      display: none; align-items: center; justify-content: center;
+      z-index: 999;
+    }
+    .popup {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      width: 320px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      text-align: center;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from {opacity: 0; transform: translateY(20px);}
+      to {opacity: 1; transform: translateY(0);}
+    }
+    .razor-logo { font-weight: 700; color: #2b72ff; font-size: 1.2rem; margin-bottom: 10px; }
+    .loader {
+      border: 3px solid #ddd;
+      border-top: 3px solid #2b72ff;
+      border-radius: 50%;
+      width: 30px; height: 30px;
+      margin: 12px auto;
+      animation: spin 1s linear infinite;
+      display: none;
+    }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    .btn-small { padding: 8px 14px; border: none; border-radius: 8px; background: #2b72ff; color: #fff; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <section class="card" id="studentPortal">
+      <h1>Welcome, <span id="studentName"></span></h1>
+      <p class="muted">
+        Wallet Balance: ₹<span id="walletBalance">0</span>
+        <button id="rechargeBtn" class="btn-small" style="margin-left:10px;">💳 Recharge Wallet</button>
+      </p>
+
+      <div style="margin-top:1rem;">
+        <label for="pickup">Pickup Location</label>
+        <select id="pickup" style="width:100%; padding:0.6rem; border-radius:8px; margin-top:6px;"></select>
+
+        <label for="drop" style="margin-top:8px; display:block;">Drop Location</label>
+        <select id="drop" style="width:100%; padding:0.6rem; border-radius:8px; margin-top:6px;"></select>
+      </div>
+
+      <div style="margin-top:12px;">
+        <strong>Available Rides Nearby</strong>
+        <div id="ridesList" class="rides-grid"></div>
+      </div>
+
+      <div class="controls">
+        <button id="requestBtn" class="btn disabled">Request Ride (₹10)</button>
+        <button id="sosBtn" style="background:#d32f2f;">🚨 SOS</button>
+        <button id="logoutBtn" style="background:#777;">Logout</button>
+      </div>
+
+      <div id="rideStatus" class="demo" style="display:none; margin-top:12px;"></div>
+
+      <div class="history" id="historyBox">
+        <strong>Trip History</strong>
+        <ul id="historyList" class="small-muted" style="margin-top:8px; list-style:disc; padding-left:18px;"></ul>
+      </div>
+    </section>
+  </main>
+
+  <!-- Razorpay mock popup -->
+  <div class="overlay" id="popupOverlay">
+    <div class="popup">
+      <div class="razor-logo">Razorpay Mock</div>
+      <label>Enter Amount (₹):</label>
+      <input type="number" id="amountInput" min="1" value="100"
+             style="width:100%;margin-top:6px;padding:8px;border-radius:6px;border:1px solid #ccc;">
+      <div class="loader" id="loader"></div>
+      <div id="payButtons" style="margin-top:10px;">
+        <button id="payNowBtn" class="btn-small">Pay Now</button>
+        <button id="cancelBtn" class="btn-small" style="background:#aaa;">Cancel</button>
+      </div>
+      <div id="successMsg" style="display:none;color:green;font-weight:600;margin-top:10px;">✅ Payment Successful!</div>
+    </div>
+  </div>
+
+  <script>
+    const LOCATIONS = [
+      'Boys Hostel','Canteen','CRC','Sports Complex','Gate 1','Gate 2','Gate 3','Library','Health Centre','Swimming Pool','Girls Hostel','CSE Dept','ECE Dept','EEE Dept','MEC Dept','CME Dept','META Dept','Arch Dept','Mining Dept','Civil Dept'
+    ];
+
+    let session = JSON.parse(localStorage.getItem('vnit_session'));
+    if (!session || session.role !== 'student') {
+      window.location.href = 'index.html';
+    }
+    if (typeof session.wallet === 'undefined' || session.wallet < 200) {
+      session.wallet = 200;
+      localStorage.setItem('vnit_session', JSON.stringify(session));
+    }
+
+    document.getElementById('studentName').textContent = session.email.split('@')[0];
+    document.getElementById('walletBalance').textContent = session.wallet;
+
+    // populate dropdowns
+    const pickupEl = document.getElementById('pickup');
+    const dropEl = document.getElementById('drop');
+    LOCATIONS.forEach(loc => {
+      const o1 = document.createElement('option'); o1.value = loc; o1.textContent = loc; pickupEl.appendChild(o1);
+      const o2 = document.createElement('option'); o2.value = loc; o2.textContent = loc; dropEl.appendChild(o2);
+    });
+
+    const ridesListEl = document.getElementById('ridesList');
+    let availableRides = [];
+
+    function seedRides() {
+      const drivers = ['Rahul','Aditi','Vikram','Sonia','Ramesh','Priya'];
+      availableRides = Array.from({length:6}).map((_,i)=>{
+        const driver = drivers[i%drivers.length];
+        const eta = 1 + Math.floor(Math.random()*6);
+        const dist = (0.3 + Math.random()*2).toFixed(1);
+        return { id: 'EV-'+(201+i), driver, eta, dist, vehicleId: 'EV-'+(201+i) };
+      });
+      renderAvailableRides();
+    }
+
+    let selectedRideId = null;
+    function renderAvailableRides() {
+      ridesListEl.innerHTML = '';
+      availableRides.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'ride-card';
+        card.id = 'ride-'+r.id;
+        card.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;">
+          <div><strong>${r.driver}</strong><div class="small-muted">${r.vehicleId}</div></div>
+          <div style="text-align:right;"><div style="font-weight:700">${r.eta} min</div><div class="small-muted">${r.dist} km</div></div>
+        </div>`;
+        const selectBtn = document.createElement('button');
+        selectBtn.textContent = 'Select Ride';
+        selectBtn.className = 'btn';
+        selectBtn.style.marginTop = '8px';
+        selectBtn.onclick = () => selectRide(r.id);
+        card.appendChild(selectBtn);
+        ridesListEl.appendChild(card);
+      });
+    }
+
+    function selectRide(id) {
+      selectedRideId = id;
+      document.querySelectorAll('.ride-card').forEach(c => c.classList.remove('selected'));
+      document.getElementById('ride-'+id).classList.add('selected');
+      document.getElementById('requestBtn').classList.remove('disabled');
+    }
+
+    seedRides();
+
+    const requestBtn = document.getElementById('requestBtn');
+    const rideStatus = document.getElementById('rideStatus');
+
+    requestBtn.addEventListener('click', () => {
+      if (!selectedRideId) return alert('Please select a ride first.');
+      const pickup = pickupEl.value;
+      const drop = dropEl.value;
+      if (pickup === drop) return alert('Pickup and drop cannot be the same.');
+      if (session.wallet < 10) return alert('Insufficient wallet balance.');
+
+      const ride = availableRides.find(r=>r.id===selectedRideId);
+      if (!ride) return alert('Selected ride not available anymore.');
+
+      document.getElementById('requestBtn').classList.add('disabled');
+      document.querySelectorAll('.ride-card button').forEach(b=>b.disabled=true);
+      rideStatus.style.display = 'block';
+
+      rideStatus.innerHTML = `<strong>Driver ${ride.driver} assigned — arriving in ${ride.eta} min</strong>`;
+      setTimeout(()=>{
+        rideStatus.innerHTML = `<strong>✅ Ride completed. ₹10 deducted.</strong>`;
+        session.wallet -= 10;
+        localStorage.setItem('vnit_session', JSON.stringify(session));
+        document.getElementById('walletBalance').textContent = session.wallet;
+        const receipts = JSON.parse(localStorage.getItem('vnit_receipts') || '[]');
+        receipts.push({ id: 'rcpt-'+Date.now(), amount:10, ride:ride.vehicleId, at: new Date().toISOString() });
+        localStorage.setItem('vnit_receipts', JSON.stringify(receipts));
+        renderHistory();
+        setTimeout(()=>{
+          document.querySelectorAll('.ride-card button').forEach(b=>b.disabled=false);
+          selectedRideId = null;
+          document.querySelectorAll('.ride-card').forEach(c=>c.classList.remove('selected'));
+          document.getElementById('requestBtn').classList.add('disabled');
+        }, 1000);
+      }, 3000);
+    });
+
+    document.getElementById('sosBtn').addEventListener('click', ()=>{
+      alert('🚨 SOS sent to campus security (mock).');
+    });
+    document.getElementById('logoutBtn').addEventListener('click', ()=>{
+      localStorage.removeItem('vnit_session');
+      window.location.href = 'index.html';
+    });
+
+    function renderHistory(){
+      const list = document.getElementById('historyList');
+      const receipts = JSON.parse(localStorage.getItem('vnit_receipts') || '[]');
+      list.innerHTML = '';
+      if (!receipts.length) { list.innerHTML = '<li class="small-muted">No trips yet.</li>'; return; }
+      receipts.slice().reverse().forEach(r => {
+        const li = document.createElement('li');
+        li.textContent = `${new Date(r.at).toLocaleString()} — ₹${r.amount} — ${r.ride}`;
+        list.appendChild(li);
+      });
+    }
+    renderHistory();
+
+    // Razorpay Mock Logic
+    const overlay = document.getElementById('popupOverlay');
+    const loader = document.getElementById('loader');
+    const successMsg = document.getElementById('successMsg');
+    const payNowBtn = document.getElementById('payNowBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const amountInput = document.getElementById('amountInput');
+
+    document.getElementById('rechargeBtn').onclick = ()=> overlay.style.display='flex';
+    cancelBtn.onclick = ()=> { overlay.style.display='none'; loader.style.display='none'; successMsg.style.display='none'; };
+
+    payNowBtn.onclick = ()=>{
+      const amt = parseInt(amountInput.value);
+      if (!amt || amt <= 0) return alert('Enter valid amount.');
+      loader.style.display='block';
+      payNowBtn.disabled = true; cancelBtn.disabled = true;
+      setTimeout(()=>{
+        loader.style.display='none';
+        successMsg.style.display='block';
+        session.wallet += amt;
+        localStorage.setItem('vnit_session', JSON.stringify(session));
+        document.getElementById('walletBalance').textContent = session.wallet;
+        setTimeout(()=>{ overlay.style.display='none'; payNowBtn.disabled=false; cancelBtn.disabled=false; successMsg.style.display='none'; }, 1200);
+      }, 1800);
+    };
+  </script>
+</body>
+</html>

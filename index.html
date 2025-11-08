@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VNIT Smart Shuttle — Login</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="container">
+    <section class="card">
+      <h1>VNIT Smart Shuttle</h1>
+      <p class="muted">Login with your VNIT credential — student / driver / admin</p>
+
+      <form id="loginForm" class="form">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" placeholder="aryan@student.vnit.ac.in" required />
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" placeholder="(demo)" required />
+
+        <button id="loginBtn" type="submit">Login</button>
+      </form>
+
+      <div class="demo">
+        <strong>Demo accounts</strong>
+        <ul>
+          <li>Student: <code>aryan@student.vnit.ac.in</code></li>
+          <li>Driver: <code>driver1@vnit</code></li>
+          <li>Admin: <code>admin@vnit</code></li>
+        </ul>
+      </div>
+
+      
+  </main>
+
+  <script>
+    // Simple login logic: role inferred from email for demo purposes
+    const loginForm = document.getElementById('loginForm');
+    loginForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      // determine role
+      let role = 'student';
+      const low = email.toLowerCase();
+      if (low.includes('driver')) role = 'driver';
+      if (low.includes('admin')) role = 'admin';
+
+      // create a simple session in localStorage
+      const session = {
+        id: 'sess-' + Math.random().toString(36).slice(2,9),
+        email,
+        role,
+        wallet: 20
+      };
+      localStorage.setItem('vnit_session', JSON.stringify(session));
+
+      // redirect to the corresponding page (these pages will be created next)
+      if (role === 'student') window.location.href = 'student.html';
+      else if (role === 'driver') window.location.href = 'driver.html';
+      else window.location.href = 'admin.html';
+    });
+  </script>
+</body>
+</html>

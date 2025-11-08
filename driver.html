@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VNIT Smart Shuttle — Driver Portal</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .rides-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 12px; margin-top: 12px; }
+    .ride-card { background: #fff; border-radius: 10px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .ride-card.accepted { outline: 2px solid var(--primary); background:#f0f8ff; }
+    .small-muted { font-size: 0.85rem; color: var(--muted); }
+    .controls { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+    .disabled { opacity:0.6; pointer-events:none; }
+    .history { margin-top:12px; background:#fff;padding:10px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,0.06); }
+    .btn-small { padding: 8px 14px; border: none; border-radius: 8px; background: #2b72ff; color: #fff; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <section class="card" id="driverPortal">
+      <h1>Welcome, <span id="driverName"></span></h1>
+      <p class="muted">
+        Wallet Balance: ₹<span id="driverWallet">0</span>
+      </p>
+
+      <div style="margin-top:1rem;">
+        <strong>Incoming Ride Requests</strong>
+        <div id="rideRequests" class="rides-grid"></div>
+      </div>
+
+      <div id="activeRideBox" style="display:none; margin-top:1rem; background:#fff; padding:12px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+        <h3>Active Ride</h3>
+        <p id="rideInfo" class="small-muted"></p>
+        <div class="controls">
+          <button id="startRideBtn" class="btn">Start Ride</button>
+          <button id="completeRideBtn" class="btn disabled">Complete Ride</button>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="sosBtn" style="background:#d32f2f;">🚨 SOS</button>
+        <button id="logoutBtn" style="background:#777;">Logout</button>
+      </div>
+
+      <div class="history" id="historyBox">
+        <strong>Ride History</strong>
+        <ul id="historyList" class="small-muted" style="margin-top:8px; list-style:disc; padding-left:18px;"></ul>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Session check
+    let session = JSON.parse(localStorage.getItem('vnit_session'));
+    if (!session || session.role !== 'driver') {
+      window.location.href = 'index.html';
+    }
+
+    // Initialize wallet if not set
+    if (typeof session.wallet === 'undefined') {
+      session.wallet = 0;
+      localStorage.setItem('vnit_session', JSON.stringify(session));
+    }
+
+    document.getElementById('driverName').textContent = session.email.split('@')[0];
+    document.getElementById('driverWallet').textContent = session.wallet;
+
+    // Mock incoming ride requests
+    const rideRequestsEl = document.getElementById('rideRequests');
+    const driversRides = [
+      { id: 'REQ-101', pickup: 'Boys Hostel', drop: 'Library', student: 'Aryan', fare: 10 },
+      { id: 'REQ-102', pickup: 'CSE Dept', drop: 'Canteen', student: 'Riya', fare: 10 },
+      { id: 'REQ-103', pickup: 'CRC', drop: 'Sports Complex', student: 'Rohit', fare: 10 }
+    ];
+
+    function renderRequests() {
+      rideRequestsEl.innerHTML = '';
+      driversRides.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'ride-card';
+        card.innerHTML = `
+          <div><strong>${r.student}</strong> requested a ride</div>
+          <div class="small-muted">${r.pickup} → ${r.drop}</div>
+          <button class="btn" style="margin-top:8px;">Accept</button>
+        `;
+        card.querySelector('button').onclick = () => acceptRide(r);
+        rideRequestsEl.appendChild(card);
+      });
+    }
+
+    let activeRide = null;
+
+    function acceptRide(ride) {
+      activeRide = ride;
+      document.getElementById('activeRideBox').style.display = 'block';
+      document.getElementById('rideInfo').textContent =
+        `${ride.student} — ${ride.pickup} → ${ride.drop} (₹${ride.fare})`;
+
+      // Disable all other requests
+      document.querySelectorAll('.ride-card button').forEach(b => b.disabled = true);
+      document.querySelectorAll('.ride-card').forEach(c => c.classList.remove('accepted'));
+      event.target.parentElement.classList.add('accepted');
+    }
+
+    document.getElementById('startRideBtn').addEventListener('click', () => {
+      if (!activeRide) return;
+      document.getElementById('rideInfo').textContent = `Ride started: ${activeRide.pickup} → ${activeRide.drop}`;
+      document.getElementById('startRideBtn').classList.add('disabled');
+      document.getElementById('completeRideBtn').classList.remove('disabled');
+    });
+
+    document.getElementById('completeRideBtn').addEventListener('click', () => {
+      if (!activeRide) return;
+      document.getElementById('rideInfo').textContent = `✅ Ride completed for ${activeRide.student}`;
+      document.getElementById('completeRideBtn').classList.add('disabled');
+      // Add ₹10 to wallet
+      session.wallet += activeRide.fare;
+      localStorage.setItem('vnit_session', JSON.stringify(session));
+      document.getElementById('driverWallet').textContent = session.wallet;
+
+      // Log history
+      const records = JSON.parse(localStorage.getItem('driver_history') || '[]');
+      records.push({
+        id: activeRide.id,
+        student: activeRide.student,
+        pickup: activeRide.pickup,
+        drop: activeRide.drop,
+        amount: activeRide.fare,
+        time: new Date().toISOString()
+      });
+      localStorage.setItem('driver_history', JSON.stringify(records));
+      renderHistory();
+
+      // Reset after short delay
+      setTimeout(() => {
+        document.getElementById('activeRideBox').style.display = 'none';
+        renderRequests();
+        activeRide = null;
+      }, 1200);
+    });
+
+    document.getElementById('sosBtn').addEventListener('click', ()=>{
+      alert('🚨 SOS sent to control room (mock).');
+    });
+    document.getElementById('logoutBtn').addEventListener('click', ()=>{
+      localStorage.removeItem('vnit_session');
+      window.location.href = 'index.html';
+    });
+
+    // Render ride history
+    function renderHistory(){
+      const list = document.getElementById('historyList');
+      const records = JSON.parse(localStorage.getItem('driver_history') || '[]');
+      list.innerHTML = '';
+      if (!records.length) { list.innerHTML = '<li class="small-muted">No rides yet.</li>'; return; }
+      records.slice().reverse().forEach(r => {
+        const li = document.createElement('li');
+        li.textContent = `${new Date(r.time).toLocaleString()} — ₹${r.amount} — ${r.pickup}→${r.drop}`;
+        list.appendChild(li);
+      });
+    }
+    renderHistory();
+    renderRequests();
+  </script>
+</body>
+</html>

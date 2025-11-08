@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VNIT Smart Shuttle — Admin Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: 220px;
+      background: var(--primary);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      padding: 1rem;
+    }
+    .sidebar h2 { margin-bottom: 2rem; }
+    .sidebar button {
+      background: none;
+      border: none;
+      color: #fff;
+      text-align: left;
+      padding: 0.6rem 0;
+      cursor: pointer;
+      font-size: 1rem;
+      border-radius: 5px;
+    }
+    .sidebar button:hover, .sidebar button.active {
+      background: rgba(255,255,255,0.2);
+    }
+    .main {
+      flex: 1;
+      padding: 1.5rem 2rem;
+      background: var(--bg);
+      overflow-y: auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+    header h1 { color: var(--primary-dark); }
+    .stats {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 2rem;
+    }
+    .stat {
+      background: #fff;
+      padding: 1rem;
+      flex: 1;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      min-width: 180px;
+      text-align: center;
+    }
+    .chart-container {
+      background: #fff;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 1rem;
+      margin-bottom: 2rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      box-shadow: var(--shadow);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    th, td {
+      padding: 0.8rem;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+    }
+    th { background: #f0f4f8; }
+    tr:last-child td { border-bottom: none; }
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      padding: 0.4rem 0.8rem;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    .btn.danger { background: #d32f2f; }
+    .hidden { display: none; }
+    .message-box {
+      background: #fff;
+      padding: 1rem;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <h2>Admin Panel</h2>
+    <button id="tabOverview" class="active">Overview</button>
+    <button id="tabVehicles">Vehicles</button>
+    <button id="tabMessages">Messages</button>
+    <button id="logoutBtn" style="margin-top:auto;background:#fff;color:var(--primary-dark);">Logout</button>
+  </aside>
+
+  <section class="main">
+    <header>
+      <h1>Welcome, <span id="adminName"></span></h1>
+    </header>
+
+    <!-- Overview Tab -->
+    <div id="overviewTab">
+      <div class="stats">
+        <div class="stat"><h2 id="ridesToday">34</h2><p>Rides Today</p></div>
+        <div class="stat"><h2 id="driversActive">5</h2><p>Active Drivers</p></div>
+        <div class="stat"><h2 id="studentsServed">78</h2><p>Students Served</p></div>
+      </div>
+
+      <div class="chart-container">
+        <h3>Daily Rides Trend</h3>
+        <canvas id="ridesChart"></canvas>
+      </div>
+
+      <div class="chart-container">
+        <h3>Driver Activity Overview</h3>
+        <canvas id="driversChart"></canvas>
+      </div>
+
+      <div class="chart-container">
+        <h3>Payment Breakdown</h3>
+        <canvas id="paymentChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Vehicles Tab -->
+    <div id="vehiclesTab" class="hidden">
+      <h2>Manage E-Vehicles</h2>
+      <table id="vehicleTable">
+        <thead>
+          <tr><th>ID</th><th>Model</th><th>Status</th><th>Action</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div style="margin-top:1rem;">
+        <input id="newVehicle" placeholder="Enter new vehicle model" style="padding:0.5rem;">
+        <button class="btn" id="addVehicleBtn">Add Vehicle</button>
+      </div>
+    </div>
+
+    <!-- Messages Tab -->
+    <div id="messagesTab" class="hidden">
+      <h2>Broadcast Message</h2>
+      <div class="message-box">
+        <textarea id="broadcastText" rows="4" style="width:100%;padding:0.6rem;border-radius:5px;"></textarea>
+        <button class="btn" id="sendMsgBtn" style="margin-top:0.6rem;">Send Message</button>
+        <p id="msgStatus" class="muted" style="margin-top:0.5rem;"></p>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    const session = JSON.parse(localStorage.getItem('vnit_session'));
+    if (!session || session.role !== 'admin') {
+      window.location.href = 'index.html';
+    }
+    document.getElementById('adminName').textContent = session.email.split('@')[0];
+
+    const tabs = {
+      tabOverview: document.getElementById('overviewTab'),
+      tabVehicles: document.getElementById('vehiclesTab'),
+      tabMessages: document.getElementById('messagesTab')
+    };
+    const buttons = document.querySelectorAll('.sidebar button');
+    buttons.forEach(btn => {
+      if (btn.id.startsWith('tab')) {
+        btn.addEventListener('click', () => {
+          Object.values(tabs).forEach(t => t.classList.add('hidden'));
+          buttons.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          tabs[btn.id].classList.remove('hidden');
+        });
+      }
+    });
+
+    const vehicleTableBody = document.querySelector('#vehicleTable tbody');
+    let vehicles = [
+      { id: 1, model: 'EV Shuttle 01', status: 'Active' },
+      { id: 2, model: 'EV Shuttle 02', status: 'Active' },
+      { id: 3, model: 'EV Shuttle 03', status: 'Maintenance' }
+    ];
+
+    function renderVehicles() {
+      vehicleTableBody.innerHTML = '';
+      vehicles.forEach(v => {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td>${v.id}</td><td>${v.model}</td><td>${v.status}</td>`;
+        const tdAction = document.createElement('td');
+        const btn = document.createElement('button');
+        btn.className = 'btn danger';
+        btn.textContent = v.status === 'Active' ? 'Deactivate' : 'Activate';
+        btn.onclick = () => {
+          v.status = v.status === 'Active' ? 'Inactive' : 'Active';
+          renderVehicles();
+        };
+        tdAction.appendChild(btn);
+        row.appendChild(tdAction);
+        vehicleTableBody.appendChild(row);
+      });
+    }
+    renderVehicles();
+
+    document.getElementById('addVehicleBtn').addEventListener('click', () => {
+      const input = document.getElementById('newVehicle');
+      if (!input.value.trim()) return alert('Enter a model name');
+      vehicles.push({ id: vehicles.length + 1, model: input.value.trim(), status: 'Active' });
+      input.value = '';
+      renderVehicles();
+    });
+
+    document.getElementById('sendMsgBtn').addEventListener('click', () => {
+      const text = document.getElementById('broadcastText').value.trim();
+      if (!text) return alert('Enter a message to broadcast');
+      document.getElementById('msgStatus').textContent = '📢 Message broadcasted: ' + text;
+      document.getElementById('broadcastText').value = '';
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      localStorage.removeItem('vnit_session');
+      window.location.href = 'index.html';
+    });
+
+    // Chart.js setup
+    new Chart(document.getElementById('ridesChart'), {
+      type: 'line',
+      data: {
+        labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+        datasets: [{
+          label: 'Rides per Day',
+          data: [30, 45, 60, 40, 80, 70, 90],
+          borderColor: '#1e88e5',
+          fill: false,
+          tension: 0.3
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } } }
+    });
+
+    new Chart(document.getElementById('driversChart'), {
+      type: 'bar',
+      data: {
+        labels: ['Driver 1', 'Driver 2', 'Driver 3', 'Driver 4', 'Driver 5'],
+        datasets: [{
+          label: 'Completed Rides',
+          data: [15, 10, 25, 18, 12],
+          backgroundColor: '#43a047'
+        }]
+      },
+      options: { responsive: true, plugins: { legend: { display: false } } }
+    });
+
+    new Chart(document.getElementById('paymentChart'), {
+      type: 'doughnut',
+      data: {
+        labels: ['UPI', 'Wallet', 'Razorpay'],
+        datasets: [{
+          data: [55, 25, 20],
+          backgroundColor: ['#1e88e5', '#43a047', '#fbc02d']
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom' },
+          title: { display: true, text: 'Payment Mode Distribution' }
+        }
+      }
+    });
+  </script>
+</body>
+</html>
